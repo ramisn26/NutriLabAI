@@ -287,7 +287,7 @@ export const generateAIAnalysis = async (reportData: ReportData, preferences?: U
   const currentPreferences = preferences || { dietType: 'Veg', cuisine: 'Mixed', language: 'English' };
 
   if (!apiKey) {
-    console.warn("No API Key found. Using tailored mock data for demo.");
+    console.warn("No API Key found. Using tailored mock data for demo.using mock data...");
     await new Promise(resolve => setTimeout(resolve, 800)); // Faster demo response
     
     // Deep copy mock data to avoid mutating original for subsequent calls
@@ -382,6 +382,7 @@ export const generateAIAnalysis = async (reportData: ReportData, preferences?: U
   `;
 
   try {
+    console.log("Gemini API available");
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
