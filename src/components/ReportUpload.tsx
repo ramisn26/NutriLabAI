@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Upload, FileText, CheckCircle, Loader2, ScanLine, FileCheck } from 'lucide-react';
 import { ReportData } from '../types';
+import { parseBloodReport } from '../services/geminiService';
 
 // Updated Mock Data to match "Mr K Ramesh" Thyrocare Report
 const MOCK_PARSED_DATA: ReportData = {
@@ -72,18 +73,21 @@ export const ReportUpload: React.FC<Props> = ({ onAnalysisComplete }) => {
   const processFile = async (uploadedFile: File) => {
     setStatus('uploading');
     
-    // Simulate Network Upload & OCR processing delays
-    setTimeout(() => {
+    // Simulate Network Upload time
+    setTimeout(async () => {
       setStatus('ocr');
       
-      setTimeout(() => {
+      try {
+        const data = await parseBloodReport(uploadedFile);
         setStatus('done');
         setTimeout(() => {
-            // In a real app, we would send the file to backend here.
-            // For the demo, we return the parsed data for "Mr K Ramesh"
-            onAnalysisComplete(MOCK_PARSED_DATA);
+            onAnalysisComplete(data);
         }, 1000);
-      }, 3000);
+      } catch (error) {
+        console.error("Analysis failed", error);
+        setStatus('idle');
+        alert("Failed to analyze report. Please try again.");
+      }
     }, 1500);
   };
 
@@ -143,7 +147,7 @@ export const ReportUpload: React.FC<Props> = ({ onAnalysisComplete }) => {
                  </div>
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-2">AI Extraction in Progress</h3>
-              <p className="text-slate-500 max-w-xs mx-auto">Parsing Thyrocare report structure for Mr K Ramesh...</p>
+              <p className="text-slate-500 max-w-xs mx-auto">Parsing Thyrocare report structure...</p>
             </div>
           )}
 

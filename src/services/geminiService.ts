@@ -4,7 +4,7 @@ import { DietPlan, ReportData, UserPreferences, Meal, DailyPlan } from '../types
 const apiKey = process.env.API_KEY || '';
 
 // Mock data tailored for "Mr K Ramesh" (Anemia, Liver Support, Vitamin D)
-// Updated with realistic nutrient estimates
+// Used ONLY as fallback if API Key is missing or parsing fails entirely
 const MOCK_DIET_PLAN: DietPlan = {
   overview: "This 7-day personalized plan focuses on correcting Anemia (Iron/Hb) and supporting Liver function (elevated GGT/SGOT). We've included iron-rich foods (Leafy greens, dates) paired with Vitamin C for absorption, and liver-friendly antioxidants while ensuring adequate Vitamin D intake.",
   weeklyPlan: [
@@ -216,6 +216,24 @@ const MOCK_DIET_PLAN: DietPlan = {
   ]
 };
 
+// Fallback Parsed Data (Used if API key is missing during upload)
+const MOCK_PARSED_DATA: ReportData = {
+  patientName: "Mr K Ramesh (39Y/M)",
+  date: "14 Sep, 2025",
+  labName: "Thyrocare Technologies",
+  riskScore: 58, 
+  summary: "DEMO MODE: Report indicates Anemia (Low Iron/Hb), Vitamin D deficiency, and elevated Liver Enzymes.",
+  biomarkers: [
+    { name: "HbA1c", value: 4.5, unit: "%", range: "< 5.7", status: "Normal", category: "Glycemic", explanation: "Long-term blood sugar is within excellent range." },
+    { name: "Avg Blood Glucose", value: 82, unit: "mg/dL", range: "90 - 120", status: "Low", category: "Glycemic", explanation: "Slightly lower than average estimated glucose." },
+    { name: "Total Cholesterol", value: 96, unit: "mg/dL", range: "< 200", status: "Normal", category: "Lipid", explanation: "Total cholesterol is well within range." },
+    { name: "Vitamin B-12", value: 1631, unit: "pg/mL", range: "197 - 771", status: "Critical High", category: "Vitamin", explanation: "Significantly elevated B12 levels." },
+    { name: "25-OH Vitamin D", value: 23.1, unit: "ng/mL", range: "30 - 100", status: "Low", category: "Vitamin", explanation: "Indicates Vitamin D insufficiency/deficiency." },
+    { name: "GGT", value: 68.91, unit: "U/L", range: "< 55", status: "High", category: "Liver", explanation: "Elevated GGT suggests liver stress or bile duct issues." },
+    { name: "Hemoglobin", value: 12.5, unit: "g/dL", range: "13.0 - 17.0", status: "Low", category: "Other", explanation: "Below normal range for adult male, indicating mild anemia." }
+  ]
+};
+
 // --- Helper: Robust Merging Strategy ---
 // Ensures no field is undefined by overlaying the generated plan onto the MOCK_DIET_PLAN
 const mergeWithMockPlan = (generatedPlan: Partial<DietPlan>): DietPlan => {
@@ -264,7 +282,6 @@ const applyMockTranslation = (plan: DietPlan, language: string) => {
             'Breakfast': 'Naashta', 'Lunch': 'Dopahar ka Khana', 'Dinner': 'Raat ka Khana', 'Snacks': 'Naashta',
             'Spinach': 'Palak', 'Rice': 'Chawal', 'Curd': 'Dahi', 'Fish': 'Machli', 'Egg': 'Anda'
         },
-        // Add basic mapping for other langs to demonstrate the feature
         'Telugu': { 'Breakfast': 'Alpaharam', 'Lunch': 'Madhyahna Bhojanam', 'Dinner': 'Ratri Bhojanam' },
         'Malayalam': { 'Breakfast': 'Prathal', 'Lunch': 'Ucha Bhakshanam', 'Dinner': 'Athazham' },
         'Kannada': { 'Breakfast': 'Thindi', 'Lunch': 'Oota', 'Dinner': 'Oota' }
@@ -280,6 +297,119 @@ const applyMockTranslation = (plan: DietPlan, language: string) => {
         plan.overview += ` (Translated to ${language} for demo purposes)`;
     }
 };
+
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = error => reject(error);
+  });
+};
+
+// --- REAL-TIME PARSING FUNCTION ---
+export const parseBloodReport = async (file: File): Promise<ReportData> => {
+    if (!apiKey) {
+        console.warn("No API Key found. Returning mock parsed data.");
+        // Delay to simulate processing
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return MOCK_PARSED_DATA;
+    }
+
+    try {
+        const base64Data = await fileToBase64(file);
+        const mimeType = file.type || 'application/pdf';
+        
+        const ai = new GoogleGenAI({ apiKey });
+        
+        // Using Flash model for efficient extraction
+        const model = 'gemini-2.5-flash'; 
+
+        const prompt = `
+            You are an expert medical report analyzer. 
+            Extract data from the attached blood test report. 
+            
+            Return a JSON object matching this structure:
+            {
+                "patientName": "string",
+                "date": "string",
+                "labName": "string",
+                "riskScore": number (0-100, where 100 is healthiest),
+                "summary": "string (brief plain english summary of findings)",
+                "biomarkers": [
+                    {
+                        "name": "string (e.g., HbA1c)",
+                        "value": number,
+                        "unit": "string",
+                        "range": "string",
+                        "status": "string (One of: 'Normal', 'High', 'Low', 'Critical High', 'Critical Low')",
+                        "category": "string (One of: 'Glycemic', 'Lipid', 'Thyroid', 'Vitamin', 'Liver', 'Other')",
+                        "explanation": "string (simple explanation of what this result means)"
+                    }
+                ]
+            }
+            
+            Important:
+            1. Extract ALL visible biomarkers.
+            2. If status is not explicitly stated, infer it from the value and range.
+            3. Ensure values are numbers.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: {
+                parts: [
+                    { inlineData: { mimeType: mimeType, data: base64Data } },
+                    { text: prompt }
+                ]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        patientName: { type: Type.STRING },
+                        date: { type: Type.STRING },
+                        labName: { type: Type.STRING },
+                        riskScore: { type: Type.NUMBER },
+                        summary: { type: Type.STRING },
+                        biomarkers: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    name: { type: Type.STRING },
+                                    value: { type: Type.NUMBER },
+                                    unit: { type: Type.STRING },
+                                    range: { type: Type.STRING },
+                                    status: { type: Type.STRING, enum: ['Normal', 'High', 'Low', 'Critical High', 'Critical Low'] },
+                                    category: { type: Type.STRING, enum: ['Glycemic', 'Lipid', 'Thyroid', 'Vitamin', 'Liver', 'Other'] },
+                                    explanation: { type: Type.STRING }
+                                },
+                                required: ['name', 'value', 'status', 'category']
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("Empty response from AI");
+        
+        const parsedData = JSON.parse(text) as ReportData;
+        return parsedData;
+
+    } catch (error) {
+        console.error("Failed to parse report with Gemini:", error);
+        alert("AI Parsing failed or API Key invalid. Falling back to demo data.");
+        return MOCK_PARSED_DATA;
+    }
+}
 
 
 export const generateAIAnalysis = async (reportData: ReportData, preferences?: UserPreferences): Promise<{ dietPlan: DietPlan, detailedSummary: string }> => {
