@@ -495,13 +495,14 @@ export const generateAIAnalysis = async (reportData: ReportData, preferences?: U
     });
 
     const text = response.text;
+    console.log("AI Generated text:", text);
     if (!text) throw new Error("No response from AI");
     
     const parsedData = JSON.parse(text) as { dietPlan: DietPlan, detailedSummary: string };
     
     // Fallback merge: Ensure no meal is left undefined if AI skips a day or meal
     const robustDietPlan = mergeWithMockPlan(parsedData.dietPlan);
-
+    console.log("mock text text:");
     return { 
         dietPlan: robustDietPlan, 
         detailedSummary: parsedData.detailedSummary || "Summary unavailable." 
